@@ -2,8 +2,10 @@
 
 const STORAGE_KEY = 'steadyCycleCheckin.v1';
 const DATE_KEY = 'steadyCycleCheckin.selectedDate';
-const PHASES = { regular: '健康饮食日', light: '轻断食日' };
+const PHASES = { regular: '健康日', light: '轻断食', free: '随便吃' };
+const FOUR_DAY_PLAN = Object.freeze(['light', 'regular', 'free', 'regular']);
 const SOURCE = 'https://www.xiaohongshu.com/explore/68e5f878000000000401213c';
+const FOLLOW_ALONG = 'https://www.xiaohongshu.com/explore/68f67018000000000700aecd';
 const PAGE_SIZE = 5;
 const MAX_PHASES = 14;
 const empty = { plan: [], cycle: null, days: {} };
@@ -12,11 +14,13 @@ const status = document.querySelector('#status');
 let state = empty;
 let storageIssue = false;
 let selectedDate = localDate();
+let calendarDate = selectedDate;
 let statusTimer;
 
 try {
   const lastDate = sessionStorage.getItem(DATE_KEY);
-  if (lastDate && validPastDate(lastDate)) selectedDate = lastDate;
+  const [chosenOn, date] = (lastDate || '').split('/');
+  if (chosenOn === calendarDate && validPastDate(date || '')) selectedDate = date;
 } catch { /* Keep the default date when session storage is unavailable. */ }
 
 try {
@@ -47,7 +51,7 @@ function validPastDate(value) {
 
 function selectDate(date) {
   selectedDate = date;
-  try { sessionStorage.setItem(DATE_KEY, date); } catch { /* Keep the date for this page. */ }
+  try { sessionStorage.setItem(DATE_KEY, localDate() + '/' + date); } catch { /* Keep the date for this page. */ }
 }
 
 function escapeText(value) {
@@ -77,11 +81,21 @@ function save(next) {
   }
 }
 
-function phaseAt(date) {
+function cycleWindow(date) {
   const cycle = state.cycle;
   if (!cycle) return null;
-  const index = cycle.plan.findIndex((_, i) => dateAt(cycle.start, i) === date);
-  return index < 0 ? null : { index, key: cycle.plan[index], cycleId: cycle.id };
+  const repeated = cycle.mode === 'four-day';
+  const elapsed = (Date.parse(date) - Date.parse(cycle.start)) / 86400000;
+  const round = repeated ? Math.max(0, Math.floor(elapsed / cycle.plan.length)) : 0;
+  return { start: dateAt(cycle.start, round * cycle.plan.length), round, repeated };
+}
+
+function phaseAt(date) {
+  const cycle = state.cycle;
+  const window = cycleWindow(date);
+  if (!window) return null;
+  const index = cycle.plan.findIndex((_, i) => dateAt(window.start, i) === date);
+  return index < 0 ? null : { index, key: cycle.plan[index], cycleId: cycle.id, ...window };
 }
 
 function dayAt(date) {
@@ -101,12 +115,12 @@ function updateDay(date, change) {
   return save({ ...state, days: { ...state.days, [date]: entry } });
 }
 
-function cycleProgress() {
-  if (!state.cycle) return [];
-  const { start, plan, id } = state.cycle;
-  return plan.map((_, i) => {
-    const entry = state.days[dateAt(start, i)];
-    return entry?.cycleId === id && entry.checked;
+function cycleProgress(date = localDate()) {
+  const window = cycleWindow(date);
+  if (!window) return [];
+  return state.cycle.plan.map((_, i) => {
+    const entry = state.days[dateAt(window.start, i)];
+    return entry?.cycleId === state.cycle.id && entry.checked;
   });
 }
 
@@ -128,10 +142,11 @@ function totals(foods) {
 function today() {
   const day = dayAt(selectedDate);
   const phase = phaseAt(selectedDate);
-  const progress = cycleProgress();
+  const progress = phase ? cycleProgress(selectedDate) : [];
   const completed = progress.filter(Boolean).length;
   const phaseTitle = PHASES[day.phase] || '自由记录';
-  const summary = phase ? `自订循环 · 第 ${phase.index + 1} / ${progress.length} 天` : '选择日期，记录当天的饮食和感受';
+  const cycleLabel = phase?.repeated ? `第 ${phase.round + 1} 轮` : '自订循环';
+  const summary = phase ? `${cycleLabel} · 第 ${phase.index + 1} / ${progress.length} 天` : '选择日期，记录当天的饮食和感受';
   return `<h1>饮食打卡</h1>
     <label>记录日期<input id="selected-date" type="date" value="${selectedDate}" max="${localDate()}"></label>
     <section class="hero">
@@ -178,42 +193,55 @@ function detail(page = 0) {
 
 function plan() {
   const cycle = state.cycle;
+  const window = cycleWindow(localDate());
   const progress = cycleProgress();
-  const finished = progress.length > 0 && progress.every(Boolean);
-  const end = cycle ? dateAt(cycle.start, cycle.plan.length - 1) : '';
-  const canStart = !cycle || end < localDate() || finished;
-  const start = end >= localDate() ? dateAt(end, 1) : localDate();
-  return `<h1>我的循环</h1><p class="muted">按你保存的顺序安排每一天。</p>
+  const lastRecord = Object.keys(state.days).sort().pop();
+  const earliest = lastRecord ? dateAt(lastRecord, 1) : '';
+  const start = earliest > localDate() ? earliest : localDate();
+  return `<h1>我的循环</h1>
     ${cycle ? `<section class="hero">
-      <span class="pill">${finished ? '已完成' : '最近一轮'}</span><h2>${cycle.plan.length} 天循环</h2>
-      <p>${cycle.start} 至 ${end} · 已打卡 ${progress.filter(Boolean).length} / ${progress.length}</p>
+      <span class="pill">${progress.every(Boolean) ? '本轮已完成' : window.repeated ? `第 ${window.round + 1} 轮` : '自订循环'}</span>
+      <h2>${window.repeated ? '四天循环' : `自订 ${cycle.plan.length} 天`}</h2>
+      <p>${window.start} 至 ${dateAt(window.start, cycle.plan.length - 1)} · 已打卡 ${progress.filter(Boolean).length} / ${progress.length}</p>
       <ol class="dots" aria-label="每日打卡进度">${progress.map((done, i) =>
         `<li class="${done ? 'done' : ''}" aria-label="第 ${i+1} 天${done ? '已完成' : '未完成'}">${i+1}</li>`
       ).join('')}</ol>
     </section>` : ''}
     <section class="card">
-      <div class="split"><h2>自订日序</h2><a class="btn" href="#edit-plan">调整顺序</a></div>
-      <p class="muted">${state.plan.length ? `已设 ${state.plan.length} 天 · ${state.plan.map(key => PHASES[key]).join(' → ')}` : '添加至少两个阶段后可开启循环。'}</p>
-      <p class="note">稳健版完整日序待核实。此处按你设置的顺序执行。</p>
-      ${canStart && state.plan.length >= 2 ? `<form id="start-form">
-        <label>开始日期<input name="start" type="date" required ${cycle ? `min="${dateAt(end, 1)}"` : ''} value="${start}"></label>
-        <button class="primary block" type="submit">${cycle ? '开始下一轮' : '开始一轮'}</button>
+      <h2>四天日序</h2>
+      <ol class="stack" aria-label="四天循环日序">${FOUR_DAY_PLAN.map((key, i) =>
+        `<li class="row split"><span>第 ${i+1} 天</span><strong>${PHASES[key]}</strong></li>`
+      ).join('')}</ol>
+      <p class="note">第 5 天回到轻断食。按日期轮转，漏打卡也照常排到下一天。</p>
+      ${!window?.repeated ? `<form id="fixed-start-form">
+        <label>开始日期<input name="start" type="date" required ${earliest ? `min="${earliest}"` : ''} value="${start}"></label>
+        ${earliest ? '<p class="muted">新一轮从已有记录之后开始。</p>' : ''}
+        <button class="primary block" type="submit">${cycle ? '改用四天循环' : '开始四天循环'}</button>
       </form>` : ''}
-      ${cycle && !canStart ? '<button class="btn block" type="button" data-action="end-cycle">结束本轮</button>' : ''}
-    </section>`;
+      ${cycle ? '<button class="btn block" type="button" data-action="end-cycle">结束循环</button>' : ''}
+    </section>
+    <a class="btn block" href="#edit-plan">自订日序</a>`;
 }
 
 function editPlan() {
   const cap = state.plan.length >= MAX_PHASES ? 'disabled' : '';
-  return `<a class="back" href="#plan">‹ 返回循环</a><h1>设置日序</h1>
+  const cycle = state.cycle;
+  const end = cycle ? dateAt(cycle.start, cycle.plan.length - 1) : '';
+  const canStart = cycle?.mode !== 'four-day' && (!cycle || end < localDate() || cycleProgress().every(Boolean));
+  const start = end >= localDate() ? dateAt(end, 1) : localDate();
+  return `<a class="back" href="#plan">‹ 返回循环</a><h1>自订日序</h1>
     <p class="muted">按顺序添加阶段，最多 ${MAX_PHASES} 天。设置会用于下一轮。</p>
-    <div class="actions"><button type="button" data-action="add-regular" ${cap}>＋健康饮食日</button><button type="button" data-action="add-light" ${cap}>＋轻断食日</button></div>
+    <div class="actions"><button type="button" data-action="add-regular" ${cap}>＋健康日</button><button type="button" data-action="add-light" ${cap}>＋轻断食</button></div>
     <ol class="stack">${state.plan.map((key, i) => `<li class="card row split">
       <div>第 ${i+1} 天 · ${PHASES[key]}</div>
       ${i > 0 ? `<button type="button" data-action="up-phase" data-index="${i}" aria-label="上移第 ${i+1} 天">↑</button>` : ''}
       <button type="button" data-action="remove-phase" data-index="${i}" aria-label="移除第 ${i+1} 天">移除</button>
     </li>`).join('')}</ol>
-    ${!state.plan.length ? '<p class="note">还没有阶段，点击上面的按钮开始添加。</p>' : ''}`;
+    ${!state.plan.length ? '<p class="note">还没有阶段，点击上面的按钮开始添加。</p>' : ''}
+    ${canStart && state.plan.length >= 2 ? `<form class="card" id="start-form">
+      <label>开始日期<input name="start" type="date" required ${cycle ? `min="${dateAt(end, 1)}"` : ''} value="${start}"></label>
+      <button class="primary block" type="submit">开始自订循环</button>
+    </form>` : ''}`;
 }
 
 function pagination(route, page, count) {
@@ -242,7 +270,8 @@ function about() {
     <section class="card"><h2>稳健版来源</h2>
       <p class="muted">八戒的小主（SAWYER）于 2025-10-09 发布稳健版答疑，提到健康饮食和轻断食。她在评论里确认饮品热量也计入。</p>
       <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书原帖</a>
-      <p class="note">完整循环顺序仍待核实。全天只吃黄瓜与米饭的说法也未核实。App 使用自订日序和实际记录，不设热量达标线。</p>
+      <p class="note">四天日序从轻断食起算。同期跟练帖的图 4 从健康日记起，轮转顺序一致。作者的答疑帖未列出完整日序。</p>
+      <a class="btn block" href="${FOLLOW_ALONG}" target="_blank" rel="noopener noreferrer">查看同期跟练记录（图 4）</a>
     </section>
     <section class="card"><h2>添加到 iPhone 主屏幕</h2><p class="muted">用 Safari 打开本页，点「分享」→「添加到主屏幕」→「添加」。</p></section>
     <section class="card"><h2>本机存储</h2><p class="muted">饮食记录只保存在此浏览器。清除网站数据后会丢失。首次在线打开后可离线使用。</p></section>
@@ -291,7 +320,7 @@ main.addEventListener('click', event => {
   const day = dayAt(selectedDate);
   if (action === 'check') {
     if (updateDay(selectedDate, { checked: !day.checked })) {
-      const completed = cycleProgress();
+      const completed = phaseAt(selectedDate) ? cycleProgress(selectedDate) : [];
       const finished = completed.length > 0 && completed.every(Boolean);
       announce(day.checked ? '已取消打卡' : finished ? '本轮循环已完成' : '已保存当天打卡');
     }
@@ -299,7 +328,7 @@ main.addEventListener('click', event => {
     if (!confirm('移除这项饮食记录？')) return;
     updateDay(selectedDate, { foods: day.foods.filter((_, i) => i !== Number(index)) });
   } else if (action === 'end-cycle') {
-    if (!confirm('结束本轮循环？已保存的每日记录会保留。')) return;
+    if (!confirm('结束当前循环？已保存的每日记录会保留。')) return;
     save({ ...state, cycle: null });
   } else {
     const phases = [...state.plan];
@@ -329,10 +358,16 @@ main.addEventListener('submit', event => {
     }
   } else if (form.id === 'note-form') {
     if (updateDay(selectedDate, { note: String(values.get('note')).trim() })) announce('备注已保存');
-  } else if (form.id === 'start-form') {
+  } else if (form.id === 'start-form' || form.id === 'fixed-start-form') {
     const start = String(values.get('start'));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || dateAt(start, 0) !== start || state.plan.length < 2) return;
-    const cycle = { start, id: crypto.randomUUID(), plan: [...state.plan] };
+    const fixed = form.id === 'fixed-start-form';
+    const days = fixed ? FOUR_DAY_PLAN : state.plan;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || dateAt(start, 0) !== start || days.length < 2) return;
+    if (fixed && Object.keys(state.days).some(date => date >= start)) {
+      announce('请选择已有记录之后的开始日期。');
+      return;
+    }
+    const cycle = { start, id: crypto.randomUUID(), plan: [...days], mode: fixed ? 'four-day' : 'custom' };
     if (save({ ...state, cycle })) {
       selectDate(start <= localDate() ? start : localDate());
       announce('循环已安排');
@@ -344,6 +379,15 @@ main.addEventListener('submit', event => {
 window.addEventListener('hashchange', () => {
   render(true);
   main.focus({ preventScroll: true });
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const today = localDate();
+  if (today !== calendarDate && selectedDate === calendarDate && main.dataset.route === 'today') {
+    selectDate(today);
+    render(true);
+  }
+  calendarDate = today;
 });
 window.addEventListener('storage', event => {
   if (event.key !== STORAGE_KEY || !event.newValue || storageIssue) return;
