@@ -1,9 +1,9 @@
 const PREFIX = 'steady-cycle-checkin-';
-const CACHE = PREFIX + 'v6';
+const CACHE = PREFIX + 'v7';
 const ROOT = new URL('./', self.registration.scope);
 const SHELL = new URL('./index.html', ROOT).href;
 const ASSETS = [
-  './index.html', './styles.css?v=6', './app.js?v=6', './manifest.webmanifest',
+  './index.html', './styles.css?v=7', './app.js?v=7', './manifest.webmanifest',
   './icons/apple-touch-icon.png', './icons/icon-192.png',
   './icons/icon-512.png', './icons/icon-maskable.png'
 ].map(path => new URL(path, ROOT).href);
