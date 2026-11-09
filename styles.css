@@ -78,6 +78,9 @@ form .split label { flex: 1; }
 .row button { min-height: 44px; font-size: 13px; padding: 4px 8px; }
 .row > div { flex: 1; }
 .row > span { min-width: 0; }
+.meal-row { padding: 9px 8px; }
+.menu-link { color: var(--ink); text-decoration: none; }
+.menu-link strong { flex: 1; }
 .dots { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; list-style: none; }
 .dots li { background: #77516d; min-width: 25px; height: 25px; display: grid; place-items: center; border-radius: 8px; font-size: 12px; }
 .dots li.done { background: #e4eee4; color: #25452a; }

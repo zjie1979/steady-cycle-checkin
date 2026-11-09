@@ -2,10 +2,16 @@
 
 const STORAGE_KEY = 'steadyCycleCheckin.v1';
 const DATE_KEY = 'steadyCycleCheckin.selectedDate';
-const PHASES = { regular: '健康日', light: '轻断食', free: '随便吃' };
-const FOUR_DAY_PLAN = Object.freeze(['light', 'regular', 'free', 'regular']);
-const SOURCE = 'https://www.xiaohongshu.com/explore/68e5f878000000000401213c';
-const FOLLOW_ALONG = 'https://www.xiaohongshu.com/explore/68f67018000000000700aecd';
+const PHASES = { regular: '健康饮食', light: '轻断食', free: '随便吃' };
+const FOUR_DAY_MENU = [
+  { phase: 'regular', meals: [['第一餐', '双吉汉堡配冰美式'], ['第二餐', '美式辣烤肉卷饼']] },
+  { phase: 'light', meals: [['第一餐', '两个鸡蛋配黄油咖啡'], ['加餐', '一把小番茄'], ['第二餐', '蒸土豆蘸辣椒粉']] },
+  { phase: 'regular', meals: [['第一餐', '轻食碗配冰美式'], ['第二餐', '一根玉米']] },
+  { phase: 'free', meals: [['第一餐', '鸡公煲'], ['第二餐', '四川或重庆火锅（原帖未加麻酱）']] }
+];
+const FOUR_DAY_PLAN = FOUR_DAY_MENU.map(day => day.phase);
+const SOURCE = 'https://www.xiaohongshu.com/explore/68fa5840000000000401392f';
+const FAQ = 'https://www.xiaohongshu.com/explore/68e5f878000000000401213c';
 const PAGE_SIZE = 5;
 const MAX_PHASES = 14;
 const empty = { plan: [], cycle: null, days: {} };
@@ -81,21 +87,33 @@ function save(next) {
   }
 }
 
+function migrateFourDayOrder() {
+  const cycle = state.cycle;
+  if (cycle?.mode !== 'four-day' || cycle.plan[0] !== 'light' || cycle.originalOrderFrom) return;
+  const lastDate = Object.keys(state.days).reduce((latest, date) => date > latest ? date : latest, localDate());
+  const elapsed = (Date.parse(lastDate) - Date.parse(cycle.start)) / 86400000;
+  const nextRound = Math.max(0, Math.floor(elapsed / FOUR_DAY_PLAN.length) + 1);
+  const originalOrderFrom = dateAt(cycle.start, nextRound * FOUR_DAY_PLAN.length);
+  save({ ...state, cycle: { ...cycle, originalOrderFrom } });
+}
+
 function cycleWindow(date) {
   const cycle = state.cycle;
   if (!cycle) return null;
   const repeated = cycle.mode === 'four-day';
   const elapsed = (Date.parse(date) - Date.parse(cycle.start)) / 86400000;
   const round = repeated ? Math.max(0, Math.floor(elapsed / cycle.plan.length)) : 0;
-  return { start: dateAt(cycle.start, round * cycle.plan.length), round, repeated };
+  const start = dateAt(cycle.start, round * cycle.plan.length);
+  const plan = cycle.originalOrderFrom && start >= cycle.originalOrderFrom ? FOUR_DAY_PLAN : cycle.plan;
+  return { start, round, repeated, plan };
 }
 
 function phaseAt(date) {
   const cycle = state.cycle;
   const window = cycleWindow(date);
   if (!window) return null;
-  const index = cycle.plan.findIndex((_, i) => dateAt(window.start, i) === date);
-  return index < 0 ? null : { index, key: cycle.plan[index], cycleId: cycle.id, ...window };
+  const index = window.plan.findIndex((_, i) => dateAt(window.start, i) === date);
+  return index < 0 ? null : { index, key: window.plan[index], cycleId: cycle.id, ...window };
 }
 
 function dayAt(date) {
@@ -118,7 +136,7 @@ function updateDay(date, change) {
 function cycleProgress(date = localDate()) {
   const window = cycleWindow(date);
   if (!window) return [];
-  return state.cycle.plan.map((_, i) => {
+  return window.plan.map((_, i) => {
     const entry = state.days[dateAt(window.start, i)];
     return entry?.cycleId === state.cycle.id && entry.checked;
   });
@@ -139,6 +157,12 @@ function totals(foods) {
   </div>${unknown ? `<p class="muted">${unknown} 项未填热量，未计入合计。</p>` : ''}`;
 }
 
+function mealRows(index) {
+  return `<ul class="stack">${FOUR_DAY_MENU[index].meals.map(([meal, example]) =>
+    `<li class="row meal-row"><strong>${meal}</strong> · ${example}</li>`
+  ).join('')}</ul>`;
+}
+
 function today() {
   const day = dayAt(selectedDate);
   const phase = phaseAt(selectedDate);
@@ -147,6 +171,8 @@ function today() {
   const phaseTitle = PHASES[day.phase] || '自由记录';
   const cycleLabel = phase?.repeated ? `第 ${phase.round + 1} 轮` : '自订循环';
   const summary = phase ? `${cycleLabel} · 第 ${phase.index + 1} / ${progress.length} 天` : '选择日期，记录当天的饮食和感受';
+  // Before the switch, the old cycle starts on the original menu's second day.
+  const menuIndex = phase?.repeated ? (phase.index + (phase.plan[0] === 'light' ? 1 : 0)) % FOUR_DAY_MENU.length : null;
   return `<h1>饮食打卡</h1>
     <label>记录日期<input id="selected-date" type="date" value="${selectedDate}" max="${localDate()}"></label>
     <section class="hero">
@@ -160,6 +186,10 @@ function today() {
       <div class="actions"><a class="btn primary" href="#add">添加食物或饮品</a><a class="btn" href="#detail">明细和备注</a></div>
     </section>
     <button class="btn block" type="button" data-action="check">${day.checked ? '取消当天打卡' : '完成当天打卡'}</button>
+    ${menuIndex === null ? '' : `<section class="card">
+      <div class="split"><h2>原帖食谱示例</h2><span class="muted">原帖第 ${menuIndex + 1} 天</span></div>
+      ${mealRows(menuIndex)}
+    </section>`}
     ${state.cycle ? '' : '<a class="btn block" href="#plan">设置我的循环</a>'}`;
 }
 
@@ -206,13 +236,14 @@ function plan() {
       <ol class="dots" aria-label="每日打卡进度">${progress.map((done, i) =>
         `<li class="${done ? 'done' : ''}" aria-label="第 ${i+1} 天${done ? '已完成' : '未完成'}">${i+1}</li>`
       ).join('')}</ol>
+      ${cycle.originalOrderFrom > localDate() ? `<p>${cycle.originalOrderFrom} 起按原帖日序开始新一轮。</p>` : ''}
     </section>` : ''}
     <section class="card">
       <h2>四天日序</h2>
       <ol class="stack" aria-label="四天循环日序">${FOUR_DAY_PLAN.map((key, i) =>
-        `<li class="row split"><span>第 ${i+1} 天</span><strong>${PHASES[key]}</strong></li>`
+        `<li><a class="row split menu-link" href="#menu/${i}"><span>第 ${i+1} 天</span><strong>${PHASES[key]}</strong><span class="muted">食谱 ›</span></a></li>`
       ).join('')}</ol>
-      <p class="note">第 5 天回到轻断食。按日期轮转，漏打卡也照常排到下一天。</p>
+      <p class="note">第 5 天回到第 1 天的健康饮食。按日期轮转，漏打卡也照常排到下一天。</p>
       ${!window?.repeated ? `<form id="fixed-start-form">
         <label>开始日期<input name="start" type="date" required ${earliest ? `min="${earliest}"` : ''} value="${start}"></label>
         ${earliest ? '<p class="muted">新一轮从已有记录之后开始。</p>' : ''}
@@ -223,6 +254,17 @@ function plan() {
     <a class="btn block" href="#edit-plan">自订日序</a>`;
 }
 
+function menu(page = 0) {
+  const index = Math.min(page, FOUR_DAY_MENU.length - 1);
+  return `<a class="back" href="#plan">‹ 返回循环</a><h1>第 ${index + 1} 天 · ${PHASES[FOUR_DAY_PLAN[index]]}</h1>
+    <section class="card">
+      <h2>原帖食谱示例</h2>
+      ${mealRows(index)}
+      <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书原帖</a>
+      ${pagination('menu', index, FOUR_DAY_MENU.length)}
+    </section>`;
+}
+
 function editPlan() {
   const cap = state.plan.length >= MAX_PHASES ? 'disabled' : '';
   const cycle = state.cycle;
@@ -231,7 +273,7 @@ function editPlan() {
   const start = end >= localDate() ? dateAt(end, 1) : localDate();
   return `<a class="back" href="#plan">‹ 返回循环</a><h1>自订日序</h1>
     <p class="muted">按顺序添加阶段，最多 ${MAX_PHASES} 天。设置会用于下一轮。</p>
-    <div class="actions"><button type="button" data-action="add-regular" ${cap}>＋健康日</button><button type="button" data-action="add-light" ${cap}>＋轻断食</button></div>
+    <div class="actions"><button type="button" data-action="add-regular" ${cap}>＋健康饮食</button><button type="button" data-action="add-light" ${cap}>＋轻断食</button></div>
     <ol class="stack">${state.plan.map((key, i) => `<li class="card row split">
       <div>第 ${i+1} 天 · ${PHASES[key]}</div>
       ${i > 0 ? `<button type="button" data-action="up-phase" data-index="${i}" aria-label="上移第 ${i+1} 天">↑</button>` : ''}
@@ -268,17 +310,16 @@ function records(page = 0) {
 function about() {
   return `<h1>说明</h1>
     <section class="card"><h2>稳健版来源</h2>
-      <p class="muted">八戒的小主（SAWYER）于 2025-10-09 发布稳健版答疑，提到健康饮食和轻断食。她在评论里确认饮品热量也计入。</p>
-      <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书原帖</a>
-      <p class="note">四天日序从轻断食起算。同期跟练帖的图 4 从健康日记起，轮转顺序一致。作者的答疑帖未列出完整日序。</p>
-      <a class="btn block" href="${FOLLOW_ALONG}" target="_blank" rel="noopener noreferrer">查看同期跟练记录（图 4）</a>
+      <p class="muted">日序和食谱示例来自八戒的小主（SAWYER）于 2025-10-25 发布的稳健版四日食谱。</p>
+      <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书四日食谱</a>
+      <a class="btn block" href="${FAQ}" target="_blank" rel="noopener noreferrer">查看作者答疑</a>
     </section>
     <section class="card"><h2>添加到 iPhone 主屏幕</h2><p class="muted">用 Safari 打开本页，点「分享」→「添加到主屏幕」→「添加」。</p></section>
     <section class="card"><h2>本机存储</h2><p class="muted">饮食记录只保存在此浏览器。清除网站数据后会丢失。首次在线打开后可离线使用。</p></section>
     <p class="muted">个人记录工具 · 与原帖作者无关联</p>`;
 }
 
-const views = { today, add, detail, plan, 'edit-plan': editPlan, records, about };
+const views = { today, add, detail, plan, menu, 'edit-plan': editPlan, records, about };
 
 function render(resetScroll = false) {
   let [route = 'today', param = '0'] = (location.hash.slice(1) || 'today').split('/');
@@ -293,7 +334,7 @@ function render(resetScroll = false) {
   main.innerHTML = (storageIssue ? '<p class="note" role="alert">本机记录暂时无法读取，保存已暂停。</p>' : '') + views[route](page);
   main.dataset.route = route;
   main.scrollTop = top;
-  const current = ({ add: 'today', detail: 'today', 'edit-plan': 'plan' })[route] || route;
+  const current = ({ add: 'today', detail: 'today', menu: 'plan', 'edit-plan': 'plan' })[route] || route;
   document.querySelectorAll('nav a').forEach(link => {
     if (link.hash === '#' + current) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -400,6 +441,7 @@ document.addEventListener('touchmove', event => {
   if (event.touches.length > 1) event.preventDefault();
 }, { passive: false });
 
+migrateFourDayOrder();
 render(true);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => announce('暂时无法启用离线使用。'));
