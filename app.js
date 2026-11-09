@@ -3,57 +3,35 @@
 const STORAGE_KEY = 'steadyCycleCheckin.v1';
 const DATE_KEY = 'steadyCycleCheckin.selectedDate';
 const PHASES = { regular: '健康饮食', light: '轻断食', free: '随便吃' };
-const ICED_AMERICANO = { name: '冰美式', kind: 'drink', portion: '无糖小杯 1 杯', kcal: 10 };
-const FOUR_DAY_MENU = [
-  { phase: 'regular', meals: [
-    ['第一餐', [
-      { id: 'double-cheeseburger', name: '双层吉士汉堡', kind: 'food', portion: '麦当劳 1 个', kcal: 429 },
-      { ...ICED_AMERICANO, id: 'americano-day-1' }
-    ]],
-    ['第二餐', [
-      { id: 'meat-wrap', name: '美式辣烤肉卷饼', kind: 'food', portion: '同类烤鸡肉卷 1 个，约 208 克', kcal: 420 }
-    ]]
-  ] },
-  { phase: 'light', meals: [
-    ['第一餐', [
-      { id: 'eggs', name: '鸡蛋', kind: 'food', portion: '水煮 2 个，去壳约 100 克', kcal: 155 },
-      { id: 'butter-coffee', name: '黄油咖啡', kind: 'drink', portion: '无糖黑咖啡约 240 毫升＋黄油 10 克', kcal: 74 }
-    ]],
-    ['加餐', [
-      { id: 'tomatoes', name: '小番茄', kind: 'food', portion: '1 把，约 100 克', kcal: 18 }
-    ]],
-    ['第二餐', [
-      { id: 'potato', name: '蒸土豆蘸辣椒粉', kind: 'food', portion: '熟土豆 200 克＋辣椒粉 1 克', kcal: 177 }
-    ]]
-  ] },
-  { phase: 'regular', meals: [
-    ['第一餐', [
-      { id: 'light-bowl', name: '轻食碗', kind: 'food', portion: '1 碗，按鸡胸肉、糙米饭、蔬菜和油估算', kcal: 410 },
-      { ...ICED_AMERICANO, id: 'americano-day-3' }
-    ]],
-    ['第二餐', [
-      { id: 'corn', name: '玉米', kind: 'food', portion: '熟甜玉米 1 根，玉米粒约 100 克', kcal: 96 }
-    ]]
-  ] },
-  { phase: 'free', meals: [
-    ['第一餐', [
-      { id: 'chicken-pot', name: '鸡公煲', kind: 'food', portion: '1 人份，按带皮鸡腿肉、配菜和用油估算，米饭另计', kcal: 550 }
-    ]],
-    ['第二餐', [
-      { id: 'hot-pot', name: '川渝火锅', kind: 'food', portion: '1 人份，按牛肉、豆腐、蔬菜和油估算，麻酱和主食另计', kcal: 680 }
-    ]]
-  ] }
-];
-const FOUR_DAY_PLAN = FOUR_DAY_MENU.map(day => day.phase);
+const FOUR_DAY_PLAN = ['regular', 'light', 'regular', 'free'];
+const EATING_WINDOW = ['eating-window', '已按计划安排进食时段（可选）', '原帖以 16+8 举例。实际时段可写在备注里。'];
+const BREAKFAST = ['breakfast', '需要时加了早餐（可选）'];
+const RULES = {
+  regular: [
+    ['regular-staple', '第一餐有主食'],
+    ['regular-vegetables', '第一餐有蔬菜'],
+    ['regular-protein', '第一餐有蛋白质食物'],
+    ['regular-second', '第二餐已安排', '可选搭配完整的一餐，或按需要选择粗粮和其他搭配。'],
+    EATING_WINDOW
+  ],
+  light: [
+    ['light-first', '第一餐有蛋白质食物', '作者的搭配思路以蛋白质和脂肪为主。'],
+    ['light-second', '第二餐有主食', '食物和份量按实际需要选择。'],
+    BREAKFAST,
+    ['light-snack', '需要时吃了加餐（可选）'],
+    EATING_WINDOW
+  ],
+  free: [
+    ['free-first', '第一餐按喜好选'],
+    ['free-second', '第二餐按喜好选'],
+    ['free-fullness', '吃到舒服的饱度'],
+    BREAKFAST,
+    EATING_WINDOW
+  ]
+};
+const RULE_TITLES = new Map(Object.values(RULES).flat().map(([id, title]) => [id, title]));
 const RULES_SOURCE = 'https://www.xiaohongshu.com/explore/68be51e9000000001b0341e7';
-const SOURCE = 'https://www.xiaohongshu.com/explore/68fa5840000000000401392f';
 const FAQ = 'https://www.xiaohongshu.com/explore/68e5f878000000000401213c';
-const NUTRITION_SOURCES = [
-  ['麦当劳中国 · 双层吉士汉堡', 'https://www.mcdonalds.com.cn/product/double-cheeseburger?ivk_sa=1024320u'],
-  ['麦当劳中国 · 冰美式', 'https://www.mcdonalds.com.cn/product/Iced-Americano'],
-  ['美国农业部 · 食物成分表 SR28', 'https://www.ars.usda.gov/northeast-area/beltsville-md-bhnrc/beltsville-human-nutrition-research-center/methods-and-application-of-food-composition-laboratory/mafcl-site-pages/sr11-sr28/'],
-  ['Harvey’s · 同类烤鸡肉卷营养表', 'https://www.harveys.ca/en/nutrition.html']
-];
 const PAGE_SIZE = 5;
 const MAX_PHASES = 14;
 const empty = { plan: [], cycle: null, days: {} };
@@ -158,10 +136,10 @@ function phaseAt(date) {
   return index < 0 ? null : { index, key: window.plan[index], cycleId: cycle.id, ...window };
 }
 
-function menuIndexFor(phase) {
+function planIndexFor(phase) {
   if (!phase?.repeated) return null;
-  // The old cycle starts on the original menu's second day.
-  return (phase.index + (phase.plan[0] === 'light' ? 1 : 0)) % FOUR_DAY_MENU.length;
+  // Before the order change, the old cycle starts on the standard plan's second day.
+  return (phase.index + (phase.plan[0] === 'light' ? 1 : 0)) % FOUR_DAY_PLAN.length;
 }
 
 function dayAt(date) {
@@ -169,6 +147,7 @@ function dayAt(date) {
   const phase = phaseAt(date);
   return {
     foods: saved?.foods || [],
+    ruleChecks: saved?.ruleChecks || [],
     note: saved?.note || '',
     checked: !!saved?.checked && (!phase || saved.cycleId === phase.cycleId),
     phase: phase?.key || saved?.phase || '',
@@ -205,18 +184,16 @@ function totals(foods) {
   </div>${unknown ? `<p class="muted">${unknown} 项未填热量，未计入合计。</p>` : ''}`;
 }
 
-function mealRows(index, foods = null) {
-  const checked = new Map(foods?.map(item => [item.presetId, item.kcal]));
-  const rows = FOUR_DAY_MENU[index].meals.flatMap(([meal, items]) => items.map(item => {
-    const text = `<span><strong>${item.name}</strong><small class="muted">${meal} · ${item.portion}</small></span>
-      <span class="meal-kcal">约 ${checked.get(item.id) ?? item.kcal} 大卡</span>`;
-    return foods === null
-      ? `<li class="row meal-row preview">${text}</li>`
-      : `<li><label class="row meal-row">
-          <input type="checkbox" id="preset-${item.id}" data-preset="${item.id}" ${checked.has(item.id) ? 'checked' : ''}>
+function ruleRows(phase, checks = null) {
+  const rows = RULES[phase].map(([id, title, hint]) => {
+    const text = `<span><strong>${title}</strong>${hint ? `<small class="muted">${hint}</small>` : ''}</span>`;
+    return checks === null
+      ? `<li class="row rule-row preview">${text}</li>`
+      : `<li><label class="row rule-row">
+          <input type="checkbox" id="rule-${id}" data-rule="${id}" ${checks.includes(id) ? 'checked' : ''}>
           ${text}
         </label></li>`;
-  }));
+  });
   return `<ul class="stack">${rows.join('')}</ul>`;
 }
 
@@ -228,7 +205,6 @@ function today() {
   const phaseTitle = PHASES[day.phase] || '自由记录';
   const cycleLabel = phase?.repeated ? `第 ${phase.round + 1} 轮` : '自订循环';
   const summary = phase ? `${cycleLabel} · 第 ${phase.index + 1} / ${progress.length} 天` : '选择日期，记录当天的饮食和感受';
-  const menuIndex = menuIndexFor(phase);
   return `<h1>饮食打卡</h1>
     <label>记录日期<input id="selected-date" type="date" value="${selectedDate}" max="${localDate()}"></label>
     <section class="hero">
@@ -236,15 +212,15 @@ function today() {
       <h2>${phaseTitle}</h2><p>${summary}</p>
       ${progress.length ? `<p>${completed === progress.length ? '本轮已完成' : `本轮已打卡 ${completed} / ${progress.length} 天`}</p>` : ''}
     </section>
-    <section class="card today-totals">
+    ${phase?.repeated ? `<section class="card">
+      <h2>规则打卡</h2>
+      ${ruleRows(phase.key, day.ruleChecks)}
+      <p class="meal-note muted">按当天实际情况勾选。可选项按需要记录。</p>
+    </section>` : ''}
+    <section class="card">
       <div class="split"><h2>当天热量</h2><span class="muted">${day.foods.length} 项</span></div>
       ${totals(day.foods)}
     </section>
-    ${menuIndex === null ? '' : `<section class="card">
-      <div class="split"><h2>食谱打卡</h2><span class="muted">原帖第 ${menuIndex + 1} 天</span></div>
-      ${mealRows(menuIndex, day.foods)}
-      <p class="meal-note muted">勾选即按参考份量计入。份量不同时，可手动添加。</p>
-    </section>`}
     <div class="actions"><a class="btn primary" href="#add">添加食物或饮品</a><a class="btn" href="#detail">明细和备注</a></div>
     <button class="btn block" type="button" data-action="check">${day.checked ? '取消当天打卡' : '完成当天打卡'}</button>
     ${state.cycle ? '' : '<a class="btn block" href="#plan">设置我的循环</a>'}`;
@@ -266,7 +242,11 @@ function detail(page = 0) {
   const pageCount = Math.max(1, Math.ceil(day.foods.length / PAGE_SIZE));
   const current = Math.min(page, pageCount - 1);
   const visible = day.foods.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
+  const rules = day.ruleChecks.map(id => RULE_TITLES.get(id)).filter(Boolean);
   return `<a class="back" href="#today">‹ 返回今日</a><h1>当天明细</h1><p class="muted">${selectedDate}</p>
+    ${rules.length ? `<section class="card"><h2>已勾选的规则</h2>
+      <ul class="stack muted">${rules.map(title => `<li>${title}</li>`).join('')}</ul>
+    </section>` : ''}
     <section class="card">${totals(day.foods)}
     ${visible.length ? `<ul class="stack">${visible.map((item, i) => `<li class="row split">
       <div>${escapeText(item.name)}<br><span class="muted">${item.kind === 'drink' ? '饮品' : '食物'} · ${item.kcal === null ? '热量待填' : `${item.presetId ? '约 ' : ''}${item.kcal} 大卡`}</span></div>
@@ -298,7 +278,7 @@ function plan() {
     <section class="card">
       <h2>四天日序</h2>
       <ol class="stack" aria-label="四天循环日序">${FOUR_DAY_PLAN.map((key, i) =>
-        `<li><a class="row split menu-link" href="#menu/${i}"><span>第 ${i+1} 天</span><strong>${PHASES[key]}</strong><span class="muted">食谱 ›</span></a></li>`
+        `<li><a class="row split menu-link" href="#menu/${i}"><span>第 ${i+1} 天</span><strong>${PHASES[key]}</strong><span class="muted">规则 ›</span></a></li>`
       ).join('')}</ol>
       <p class="note">第 5 天回到第 1 天的健康饮食。按日期轮转，漏打卡也照常排到下一天。</p>
       ${!window?.repeated ? `<form id="fixed-start-form">
@@ -311,20 +291,16 @@ function plan() {
     <a class="btn block" href="#edit-plan">自订日序</a>`;
 }
 
-function menu(page = 0) {
-  const index = Math.min(page, FOUR_DAY_MENU.length - 1);
-  const day = menuIndexFor(phaseAt(selectedDate)) === index ? dayAt(selectedDate) : null;
-  return `<a class="back" href="#plan">‹ 返回循环</a><h1>第 ${index + 1} 天 · ${PHASES[FOUR_DAY_PLAN[index]]}</h1>
-    ${day ? `<section class="card today-totals">
-      <div class="split"><h2>当天热量</h2><span class="muted">${selectedDate}</span></div>
-      ${totals(day.foods)}
-    </section>` : ''}
+function cycleDay(page = 0) {
+  const index = Math.min(page, FOUR_DAY_PLAN.length - 1);
+  const phase = FOUR_DAY_PLAN[index];
+  const day = planIndexFor(phaseAt(selectedDate)) === index ? dayAt(selectedDate) : null;
+  return `<a class="back" href="#plan">‹ 返回循环</a><h1>第 ${index + 1} 天 · ${PHASES[phase]}</h1>
     <section class="card">
-      <h2>${day ? '食谱打卡' : '原帖食谱示例'}</h2>
-      ${mealRows(index, day?.foods ?? null)}
-      ${day ? '<p class="meal-note muted">勾选即按参考份量计入。</p>' : '<p class="meal-note muted">开始四天循环后，可在「今日」勾选对应日期的食谱。</p>'}
-      <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书原帖</a>
-      ${pagination('menu', index, FOUR_DAY_MENU.length)}
+      <div class="split"><h2>${day ? '规则打卡' : '打卡规则'}</h2>${day ? `<span class="muted">${selectedDate}</span>` : ''}</div>
+      ${ruleRows(phase, day?.ruleChecks ?? null)}
+      ${day ? '<a class="btn block" href="#today">查看当天记录</a>' : '<p class="meal-note muted">在「今日」选择对应日期即可勾选。</p>'}
+      ${pagination('menu', index, FOUR_DAY_PLAN.length)}
     </section>`;
 }
 
@@ -364,7 +340,7 @@ function records(page = 0) {
   return `<h1>历史记录</h1><p class="muted">点击日期可查看或补记。</p>
     <section class="card">
     ${entries.length ? `<ul class="history">${entries.slice(current*PAGE_SIZE, (current+1)*PAGE_SIZE).map(([date, day]) => `<li>
-      <a href="#day/${date}"><span>${date}<br><small>${PHASES[day.phase] || '自由记录'} · ${day.checked ? '已打卡' : '未打卡'}</small></span>
+      <a href="#day/${date}"><span>${date}<br><small>${PHASES[day.phase] || '自由记录'} · ${day.checked ? '已打卡' : '未打卡'}${day.ruleChecks?.length ? ` · ${day.ruleChecks.length} 项规则` : ''}</small></span>
       <span>已记 ${kcal(day.foods)} 大卡 ›</span></a>
     </li>`).join('')}</ul>` : '<p class="muted">还没有记录。</p>'}
     ${pagination('records', current, count)}</section>`;
@@ -376,37 +352,23 @@ function about() {
       <summary>稳健版规则</summary>
       <p class="meal-note muted">整理自八戒的小主（SAWYER）于 2025-09-10 发布的规则视频。三种日型排成四天，随便吃之后接健康饮食。</p>
       <ul class="stack muted">
-        <li><strong>健康饮食</strong><br>作者按 16+8 讲解。第一餐选搭配完整的餐食，第二餐可以同样搭配，也可以选粗粮。</li>
-        <li><strong>轻断食</strong><br>作者举例第一餐选鸡蛋、虾、三文鱼或鸡腿，第二餐选粗粮或馒头。</li>
+        <li><strong>健康饮食</strong><br>第一餐搭配主食、蔬菜和蛋白质食物。第二餐可以同样搭配，也可以选粗粮。</li>
+        <li><strong>轻断食</strong><br>第一餐按作者讲的思路选择蛋白质食物，第二餐安排主食。</li>
         <li><strong>随便吃</strong><br>作者举例在 8 小时内吃两餐，食物按喜好选。</li>
       </ul>
-      <p class="note"><strong>早餐可选</strong><br>随便吃日做不了 16+8，或轻断食日需要吃早餐时，作者给出的早餐示例是两个鸡蛋加黄油咖啡。</p>
+      <p class="note"><strong>早餐可选</strong><br>随便吃日或轻断食日有早餐需求时，可以按实际情况记录。</p>
       <a class="btn block" href="${RULES_SOURCE}" target="_blank" rel="noopener noreferrer">查看 9 月 10 日规则原帖</a>
       <a class="btn block" href="${FAQ}" target="_blank" rel="noopener noreferrer">查看 10 月 9 日作者答疑</a>
     </details>
-    <section class="card"><h2>四日食谱示例</h2>
-      <p class="muted">「循环」里的四天日序和「今日」里的食谱选项，来自作者 2025-10-25 发布的四日食谱示例。按实际吃过的项目勾选即可记录。</p>
-      <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书四日食谱</a>
+    <section class="card"><h2>规则和热量怎么记</h2>
+      <p class="muted">按实际勾选规则，按需记录吃过的食物和饮品。当天合计来自饮食条目。</p>
     </section>
-    <details class="card">
-      <summary>食谱热量怎么算</summary>
-      <p class="meal-note muted">双吉和小杯冰美式按麦当劳中国标示的 1796 和 41 千焦换算（大卡 = 千焦 ÷ 4.184）。卷饼用同类烤鸡肉卷作参考，其余按食物成分表估算。</p>
-      <ul class="stack muted">
-        <li>轻食碗按熟鸡胸肉 100 克、熟糙米饭 120 克、熟西兰花 150 克、油 5 克计算。</li>
-        <li>鸡公煲按带皮熟鸡腿肉 180 克、洋葱 50 克、青椒 50 克、油 10 克、酱油 15 克计算。</li>
-        <li>火锅按熟牛肉 150 克、北豆腐 100 克、蔬菜 200 克、随食物摄入的油和蘸料油合计 10 克计算。</li>
-      </ul>
-      <ul class="stack muted">${NUTRITION_SOURCES.map(([name, url]) =>
-        `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a></li>`
-      ).join('')}</ul>
-      <p class="meal-note muted">当天合计用于记录摄入量。外食的实际份量、食材和用油可能不同。</p>
-    </details>
     <section class="card"><h2>添加到 iPhone 主屏幕</h2><p class="muted">用 Safari 打开本页，点「分享」→「添加到主屏幕」→「添加」。</p></section>
     <section class="card"><h2>本机存储</h2><p class="muted">饮食记录只保存在此浏览器。清除网站数据后会丢失。首次在线打开后可离线使用。</p></section>
     <p class="muted">个人记录工具 · 与原帖作者无关联</p>`;
 }
 
-const views = { today, add, detail, plan, menu, 'edit-plan': editPlan, records, about };
+const views = { today, add, detail, plan, menu: cycleDay, 'edit-plan': editPlan, records, about };
 
 function render(resetScroll = false) {
   let [route = 'today', param = '0'] = (location.hash.slice(1) || 'today').split('/');
@@ -435,23 +397,16 @@ function go(route) {
 }
 
 main.addEventListener('change', event => {
-  const presetId = event.target.dataset.preset;
-  if (presetId) {
-    const index = menuIndexFor(phaseAt(selectedDate));
-    const preset = FOUR_DAY_MENU[index]?.meals.flatMap(([, items]) => items).find(item => item.id === presetId);
-    if (!preset) return;
-    const { foods } = dayAt(selectedDate);
+  const ruleId = event.target.dataset.rule;
+  if (ruleId) {
+    const phase = phaseAt(selectedDate);
+    if (!phase?.repeated || !RULES[phase.key]?.some(([id]) => id === ruleId)) return;
+    const { ruleChecks } = dayAt(selectedDate);
     const checked = event.target.checked;
-    const next = foods.filter(item => item.presetId !== presetId);
-    if (checked) {
-      const { name, kind, kcal } = preset;
-      next.push(foods.find(item => item.presetId === presetId) || { name, kind, kcal, presetId });
-    }
-    if (updateDay(selectedDate, { foods: next })) {
-      announce(`${checked ? '已计入' : '已取消'}${preset.name}，当天已记 ${kcal(next)} 大卡`);
-    }
-    render();
-    document.getElementById(`preset-${presetId}`)?.focus({ preventScroll: true });
+    const next = ruleChecks.filter(id => id !== ruleId);
+    if (checked) next.push(ruleId);
+    if (updateDay(selectedDate, { ruleChecks: next })) announce(checked ? '已保存这项规则' : '已取消这项规则');
+    else event.target.checked = ruleChecks.includes(ruleId);
     return;
   }
   if (event.target.id !== 'selected-date') return;
