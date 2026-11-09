@@ -45,6 +45,7 @@ const FOUR_DAY_MENU = [
   ] }
 ];
 const FOUR_DAY_PLAN = FOUR_DAY_MENU.map(day => day.phase);
+const RULES_SOURCE = 'https://www.xiaohongshu.com/explore/68be51e9000000001b0341e7';
 const SOURCE = 'https://www.xiaohongshu.com/explore/68fa5840000000000401392f';
 const FAQ = 'https://www.xiaohongshu.com/explore/68e5f878000000000401213c';
 const NUTRITION_SOURCES = [
@@ -371,10 +372,21 @@ function records(page = 0) {
 
 function about() {
   return `<h1>说明</h1>
-    <section class="card"><h2>稳健版来源</h2>
-      <p class="muted">日序和食谱示例来自八戒的小主（SAWYER）于 2025-10-25 发布的稳健版四日食谱。</p>
+    <details class="card">
+      <summary>稳健版规则</summary>
+      <p class="meal-note muted">整理自八戒的小主（SAWYER）于 2025-09-10 发布的规则视频。三种日型排成四天，随便吃之后接健康饮食。</p>
+      <ul class="stack muted">
+        <li><strong>健康饮食</strong><br>作者按 16+8 讲解。第一餐选搭配完整的餐食，第二餐可以同样搭配，也可以选粗粮。</li>
+        <li><strong>轻断食</strong><br>作者举例第一餐选鸡蛋、虾、三文鱼或鸡腿，第二餐选粗粮或馒头。</li>
+        <li><strong>随便吃</strong><br>作者举例在 8 小时内吃两餐，食物按喜好选。</li>
+      </ul>
+      <p class="note"><strong>早餐可选</strong><br>随便吃日做不了 16+8，或轻断食日需要吃早餐时，作者给出的早餐示例是两个鸡蛋加黄油咖啡。</p>
+      <a class="btn block" href="${RULES_SOURCE}" target="_blank" rel="noopener noreferrer">查看 9 月 10 日规则原帖</a>
+      <a class="btn block" href="${FAQ}" target="_blank" rel="noopener noreferrer">查看 10 月 9 日作者答疑</a>
+    </details>
+    <section class="card"><h2>四日食谱示例</h2>
+      <p class="muted">「循环」里的四天日序和「今日」里的食谱选项，来自作者 2025-10-25 发布的四日食谱示例。按实际吃过的项目勾选即可记录。</p>
       <a class="btn block" href="${SOURCE}" target="_blank" rel="noopener noreferrer">查看小红书四日食谱</a>
-      <a class="btn block" href="${FAQ}" target="_blank" rel="noopener noreferrer">查看作者答疑</a>
     </section>
     <details class="card">
       <summary>食谱热量怎么算</summary>
@@ -387,7 +399,7 @@ function about() {
       <ul class="stack muted">${NUTRITION_SOURCES.map(([name, url]) =>
         `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a></li>`
       ).join('')}</ul>
-      <p class="meal-note muted">合计显示已记录的摄入量。外食的实际份量、食材和用油可能不同。</p>
+      <p class="meal-note muted">当天合计用于记录摄入量。外食的实际份量、食材和用油可能不同。</p>
     </details>
     <section class="card"><h2>添加到 iPhone 主屏幕</h2><p class="muted">用 Safari 打开本页，点「分享」→「添加到主屏幕」→「添加」。</p></section>
     <section class="card"><h2>本机存储</h2><p class="muted">饮食记录只保存在此浏览器。清除网站数据后会丢失。首次在线打开后可离线使用。</p></section>
